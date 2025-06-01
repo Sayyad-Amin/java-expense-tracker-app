@@ -1,42 +1,29 @@
-#———stage1 - jar builder ————-
-
-# Maven image
-
-FROM maven:3.8.3-openjdk-17 AS builder 
-
-# Set working directory
-
+FROM eclipse-temurin:17-jdk as build
 WORKDIR /app
 
-# Copy source code from local to container
+# Copy maven executable and pom.xml
+COPY mvnw .
+COPY .mvn .mvn
+COPY pom.xml .
 
-COPY . /app
+# Make the mvnw script executable
+RUN chmod +x ./mvnw
 
-# Build application and skip test cases
+# Download all dependencies
+RUN ./mvnw dependency:go-offline -B
 
-#EXPOSE 8080
+# Copy the project source
+COPY src src
 
-RUN mvn clean install -DskipTests=true
+# Package the application
+RUN ./mvnw package -DskipTests
+RUN mkdir -p target/dependency && (cd target/dependency; jar -xf ../*.jar)
 
-#ENTRYPOINT ["java", "-jar", "/expenseapp.jar"]
-
-#--------------------------------------
-# Stage 2 - app build
-#--------------------------------------
-
-# Import small size java image
-
-FROM openjdk:17-alpine
-
-WORKDIR /app 
-
-# Copy build from stage 1 (builder)
-
-COPY --from=builder /app/target/*.jar /app/target/expenseapp.jar
-
-# Expose application port 
-
-EXPOSE 8080
-
-# Start the application
-ENTRYPOINT ["java", "-jar", "/app/target/expenseapp.jar"]
+# Runtime stage
+FROM eclipse-temurin:17-jre
+VOLUME /tmp
+ARG DEPENDENCY=/app/target/dependency
+COPY --from=build ${DEPENDENCY}/BOOT-INF/lib /app/lib
+COPY --from=build ${DEPENDENCY}/META-INF /app/META-INF
+COPY --from=build ${DEPENDENCY}/BOOT-INF/classes /app
+ENTRYPOINT ["java","-cp","app:app/lib/*","com.SpringBootMVC.ExpensesTracker.ExpensesTrackerApplication"]
